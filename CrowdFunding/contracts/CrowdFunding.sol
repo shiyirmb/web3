@@ -1,27 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-// Data Feeds 使用参考 https://docs.chain.link/data-feeds/using-data-feeds
+// Data Feed 使用参考 https://docs.chain.link/data-feeds/using-data-feeds
 // 注: 第三方服务不能在本地使用，需要部署到测试或者正式网络上
 import { AggregatorV3Interface } from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 // 1.创建收款函数用于收款
 // 2.记录投资人&查看投资人投资金额
+// 3.达到预期金额，合约拥有者可以提取资金
+// 4.未达到预期金额，投资人可以退款
 
 // 创建众筹合约
 contract CrowdFunding {
     // 记录投资人&投资金额
     mapping(address => uint256) public investorToAmount;
     // 设置最小投资金额
-    uint256 MIN_AMOUNT = 100 * 10 ** 18; // 100USD
+    uint256 constant MIN_AMOUNT = 10 * 10 ** 18; // 10USD
     // 声明喂价变量
     AggregatorV3Interface internal dataFeed;
+
+    // 合约拥有者
+    address public owner;
+    // 设定众筹目标金额
+    uint256 constant TARGET_AMOUNT = 1000 * 10 ** 18; // 1000USD
 
     constructor() {
         // 初始化喂价变量
         dataFeed = AggregatorV3Interface(
             0x694AA1769357215DE4FAC081bf1f309aDC325306 // 以太坊-Sepolia测试网-ETH/USD地址
         );
+        // 合约部署者就是合约拥有者
+        owner = msg.sender;
     }
 
     // 创建收款函数
@@ -49,5 +58,54 @@ contract CrowdFunding {
         // ETH数量 * ETH价格 = 总价格
         uint256 ethPrice = uint256(getChainlinkDataFeedLatestAnswer());
         return ethAmount * ethPrice / (10 ** 8); // ETH/USD 精度为8位
+    }
+
+    // 修改合约拥有者 只有合约拥有者才可以修改
+    function turnOwner(address newOwnerAddress) external isOwner {
+        owner = newOwnerAddress;
+    }
+
+    // 合约拥有者 取款
+    function getFund() external isOwner {
+        // 当前合约中的ETH数量 address(this).balance
+        // 地址变量默认是不可收款的需要payable转换
+        // 需要达到目标金额才可以转账
+        require(turnEthToUsd(address(this).balance) >= TARGET_AMOUNT, "Target amount is not reached");
+
+        // 三种转账函数-1：transfer addr.transfer(amount) 此方法将ETH从一个地址转移到另一个地址，如果出现错误会回退
+        // payable(msg.sender).transfer(address(this).balance);
+
+        // 三种转账函数-2：send 与 transfer一样 但是它是返回一个布尔值 true or false
+        // bool success = payable(msg.sender).send(address(this).balance);
+        // require(success, "tx failed");
+
+        // 三种转账函数-3：call 以太坊官方推荐函数
+        // (bool, value) = addr.call{value: value}("data"); => (布尔值, 返回值) = 转账地址.call{value: 转账的ETH}("数据");
+        bool success;
+        (success, ) = payable(msg.sender).call{value: address(this).balance}("");
+        require(success, "tx failed");
+        investorToAmount[msg.sender] = 0;
+    }
+
+    // 投资者 退款
+    function refund() external {
+        // 没有达到目标金额才可退款
+        require(turnEthToUsd(address(this).balance) < TARGET_AMOUNT, "Target amount is reached");
+        // 参与过投资（有投资金额）才可退款
+        require(investorToAmount[msg.sender] != 0, "There is no fund for you");
+        bool success;
+        // 先记录下投资人投资的金额，后清除投资人金额，最后转账，防止重入攻击
+        uint256 amount = investorToAmount[msg.sender];
+        investorToAmount[msg.sender] = 0;
+        (success, ) = payable(msg.sender).call{value: amount}("");
+        require(success == false);
+        // 退款失败 恢复投资人投资金额
+        investorToAmount[msg.sender] = amount;
+    }
+
+    // 函数修饰器 是否为合约拥有者
+    modifier isOwner {
+        require(msg.sender == owner, "You are not the owner");
+        _;
     }
 }
