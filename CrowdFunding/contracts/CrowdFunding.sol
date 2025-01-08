@@ -7,8 +7,8 @@ import { AggregatorV3Interface } from "@chainlink/contracts/src/v0.8/shared/inte
 
 // 1.创建收款函数用于收款
 // 2.记录投资人&查看投资人投资金额
-// 3.达到预期金额，合约拥有者可以提取资金
-// 4.未达到预期金额，投资人可以退款
+// 3.在锁定期内，达到预期金额，合约拥有者可以提取资金
+// 4.在锁定期内，未达到预期金额，投资人可以退款
 
 // 创建众筹合约
 contract CrowdFunding {
@@ -24,17 +24,28 @@ contract CrowdFunding {
     // 设定众筹目标金额
     uint256 constant TARGET_AMOUNT = 1000 * 10 ** 18; // 1000USD
 
-    constructor() {
+    // 合约部署的时间 距离1970年1月1日的秒数
+    uint256 deploymentTime;
+    // 锁定期 单位为秒
+    uint256 lockTime;
+
+    constructor(uint256 _lockTime) {
         // 初始化喂价变量
         dataFeed = AggregatorV3Interface(
             0x694AA1769357215DE4FAC081bf1f309aDC325306 // 以太坊-Sepolia测试网-ETH/USD地址
         );
         // 合约部署者就是合约拥有者
         owner = msg.sender;
+        // 合约的部署时间就是当前区块的时间戳
+        deploymentTime = block.timestamp;
+        // 锁定期由部署合约时确定
+        lockTime = _lockTime;
     }
 
     // 创建收款函数
     function payment() external payable {
+        // 合约部署时间+锁定期=锁定期结束时间，当前区块时间在结束时间之前可以进行投资
+        require(deploymentTime + lockTime >= block.timestamp, "This is over the lock time");
         // 验证投资金额是否满足最小投资金额 否则交易将退回
         require(turnEthToUsd(msg.value) >= MIN_AMOUNT, "Send more ETH");
         // 记录投资人及投资金额 多次投资累加金额
@@ -65,8 +76,8 @@ contract CrowdFunding {
         owner = newOwnerAddress;
     }
 
-    // 合约拥有者 取款
-    function getFund() external isOwner {
+    // 合约拥有者 取款 超过锁定期才可以取款
+    function getFund() external isOwner isOverLockTime {
         // 当前合约中的ETH数量 address(this).balance
         // 地址变量默认是不可收款的需要payable转换
         // 需要达到目标金额才可以转账
@@ -87,8 +98,8 @@ contract CrowdFunding {
         investorToAmount[msg.sender] = 0;
     }
 
-    // 投资者 退款
-    function refund() external {
+    // 投资者 退款 超过锁定期才可以退款
+    function refund() external isOverLockTime {
         // 没有达到目标金额才可退款
         require(turnEthToUsd(address(this).balance) < TARGET_AMOUNT, "Target amount is reached");
         // 参与过投资（有投资金额）才可退款
@@ -106,6 +117,13 @@ contract CrowdFunding {
     // 函数修饰器 是否为合约拥有者
     modifier isOwner {
         require(msg.sender == owner, "You are not the owner");
+        _;
+    }
+
+    // 函数修饰器 是否已过锁定期
+    modifier isOverLockTime {
+        // 合约部署时间+锁定期=锁定期结束时间，当前区块时间在结束时间之后可以提款或者退款
+        require(deploymentTime + lockTime < block.timestamp, "This is not over the lock time");
         _;
     }
 }
