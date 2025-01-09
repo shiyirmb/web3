@@ -29,6 +29,11 @@ contract CrowdFunding {
     // 锁定期 单位为秒
     uint256 lockTime;
 
+    // 发起人是否成功取款
+    bool public getFundSuccess = false;
+    // ERC20通证合约地址 用于判断是否可以调用重置 investorToAmount
+    address public erc20Addr;
+
     constructor(uint256 _lockTime) {
         // 初始化喂价变量
         dataFeed = AggregatorV3Interface(
@@ -95,7 +100,8 @@ contract CrowdFunding {
         bool success;
         (success, ) = payable(msg.sender).call{value: address(this).balance}("");
         require(success, "tx failed");
-        investorToAmount[msg.sender] = 0;
+        // investorToAmount[msg.sender] = 0;
+        getFundSuccess = true;
     }
 
     // 投资者 退款 超过锁定期才可以退款
@@ -112,6 +118,17 @@ contract CrowdFunding {
         require(success == false);
         // 退款失败 恢复投资人投资金额
         investorToAmount[msg.sender] = amount;
+    }
+
+    // 设置ERC20通证合约地址
+    function setAddress(address _erc20Addr) public isOwner {
+        erc20Addr = _erc20Addr;
+    }
+
+    // 重新设置投资人投资的金额 只有合约拥有者可以重新设置
+    function setInvestorToAmount(address addr, uint256 amount) external {
+        require(msg.sender == erc20Addr, "You do not have permission to call this function");
+        investorToAmount[addr] = amount;
     }
 
     // 函数修饰器 是否为合约拥有者
