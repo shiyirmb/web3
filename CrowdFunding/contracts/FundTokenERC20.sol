@@ -10,12 +10,12 @@ import { CrowdFunding } from './CrowdFunding.sol';
 // 2、投资者可以交易自己的通证
 // 3、通证在使用完成以后，及时 burn 掉
 
-contract FundToken is ERC20 {
-    // 声明合约
+contract FundTokenERC20 is ERC20 {
+    // 声明crowdFunding合约实例
     CrowdFunding crowdFunding;
-    constructor(address funderAddr) ERC20("FundTokenERC20", "FT") {
-        // 初始化CrowdFunding合约实例
-        crowdFunding = CrowdFunding(funderAddr);
+    constructor(address crowdFundingAddr) ERC20("FundTokenERC20", "FT") {
+        // 使用CrowdFunding合约地址初始化CrowdFunding合约实例
+        crowdFunding = CrowdFunding(crowdFundingAddr);
     }
 
     // 铸造通证

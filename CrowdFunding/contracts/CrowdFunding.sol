@@ -15,14 +15,14 @@ contract CrowdFunding {
     // 记录投资人&投资金额
     mapping(address => uint256) public investorToAmount;
     // 设置最小投资金额
-    uint256 constant MIN_AMOUNT = 10 * 10 ** 18; // 10USD
+    uint256 minAmount = 10 * 10 ** 18; // 10USD
     // 声明喂价变量
     AggregatorV3Interface internal dataFeed;
 
     // 合约拥有者
     address public owner;
     // 设定众筹目标金额
-    uint256 constant TARGET_AMOUNT = 1000 * 10 ** 18; // 1000USD
+    uint256 targetAmount = 1000 * 10 ** 18; // 1000USD
 
     // 合约部署的时间 距离1970年1月1日的秒数
     uint256 deploymentTime;
@@ -34,7 +34,7 @@ contract CrowdFunding {
     // ERC20通证合约地址 用于判断是否可以调用重置 investorToAmount
     address public erc20Addr;
 
-    constructor(uint256 _lockTime) {
+    constructor(uint256 lockTimeSecond, uint256 minAmountUSD, uint256 targetAmountUSD) {
         // 初始化喂价变量
         dataFeed = AggregatorV3Interface(
             0x694AA1769357215DE4FAC081bf1f309aDC325306 // 以太坊-Sepolia测试网-ETH/USD地址
@@ -43,8 +43,12 @@ contract CrowdFunding {
         owner = msg.sender;
         // 合约的部署时间就是当前区块的时间戳
         deploymentTime = block.timestamp;
-        // 锁定期由部署合约时确定
-        lockTime = _lockTime;
+        // 锁定期由部署合约时确定 单位：秒
+        lockTime = lockTimeSecond;
+        // 最小投资金额由部署合约时确定 单位：美元
+        minAmount = minAmountUSD * 10 ** 18;
+        // 最小投资金额由部署合约时确定 单位：美元
+        targetAmount = targetAmountUSD * 10 ** 18;
     }
 
     // 创建收款函数
@@ -52,7 +56,7 @@ contract CrowdFunding {
         // 合约部署时间+锁定期=锁定期结束时间，当前区块时间在结束时间之前可以进行投资
         require(deploymentTime + lockTime >= block.timestamp, "This is over the lock time");
         // 验证投资金额是否满足最小投资金额 否则交易将退回
-        require(turnEthToUsd(msg.value) >= MIN_AMOUNT, "Send more ETH");
+        require(turnEthToUsd(msg.value) >= minAmount, "Send more ETH");
         // 记录投资人及投资金额 多次投资累加金额
         investorToAmount[msg.sender] += msg.value;
     }
@@ -86,7 +90,7 @@ contract CrowdFunding {
         // 当前合约中的ETH数量 address(this).balance
         // 地址变量默认是不可收款的需要payable转换
         // 需要达到目标金额才可以转账
-        require(turnEthToUsd(address(this).balance) >= TARGET_AMOUNT, "Target amount is not reached");
+        require(turnEthToUsd(address(this).balance) >= targetAmount, "Target amount is not reached");
 
         // 三种转账函数-1：transfer addr.transfer(amount) 此方法将ETH从一个地址转移到另一个地址，如果出现错误会回退
         // payable(msg.sender).transfer(address(this).balance);
@@ -107,7 +111,7 @@ contract CrowdFunding {
     // 投资者 退款 超过锁定期才可以退款
     function refund() external isOverLockTime {
         // 没有达到目标金额才可退款
-        require(turnEthToUsd(address(this).balance) < TARGET_AMOUNT, "Target amount is reached");
+        require(turnEthToUsd(address(this).balance) < targetAmount, "Target amount is reached");
         // 参与过投资（有投资金额）才可退款
         require(investorToAmount[msg.sender] != 0, "There is no fund for you");
         bool success;
@@ -125,8 +129,9 @@ contract CrowdFunding {
         erc20Addr = _erc20Addr;
     }
 
-    // 重新设置投资人投资的金额 只有合约拥有者可以重新设置
+    // 重新设置投资人投资的金额 必须为FundTokenERC20的那个特定合约才可以操作
     function setInvestorToAmount(address addr, uint256 amount) external {
+        // 这里是FundTokenERC20合约自动调用的，所以msg.sender是合约部署后生成的合约地址
         require(msg.sender == erc20Addr, "You do not have permission to call this function");
         investorToAmount[addr] = amount;
     }
